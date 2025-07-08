@@ -18,18 +18,26 @@ class CPMM:
         FEE_DENOMINATOR (np.uint32): The denominator for the trading fee (e.g., 1000).
     """
 
-    def __init__(self, ether_reserve: int, token_reserve: int, initial_liquidity: int):
+    def __init__(self, ether_reserve: np.uint32, token_reserve: np.uint32, initial_liquidity: np.uint32):
         """
         Initializes the CPMM with given reserves and liquidity.
 
         Args:
-            ether_reserve (int): The initial amount of Ether in the pool.
-            token_reserve (int): The initial amount of tokens in the pool.
-            initial_liquidity (int): The initial amount of liquidity tokens.
+            ether_reserve (np.uint32): The initial amount of Ether in the pool.
+            token_reserve (np.uint32): The initial amount of tokens in the pool.
+            initial_liquidity (np.uint32): The initial amount of liquidity tokens.
         """
-        self.e = np.uint32(ether_reserve)
-        self.t = np.uint32(token_reserve)
-        self.l = np.uint32(initial_liquidity)
+        # Type verification
+        if not isinstance(ether_reserve, np.uint32):
+            raise TypeError(f"ether_reserve must be np.uint32, got {type(ether_reserve)}")
+        if not isinstance(token_reserve, np.uint32):
+            raise TypeError(f"token_reserve must be np.uint32, got {type(token_reserve)}")
+        if not isinstance(initial_liquidity, np.uint32):
+            raise TypeError(f"initial_liquidity must be np.uint32, got {type(initial_liquidity)}")
+            
+        self.e = ether_reserve
+        self.t = token_reserve
+        self.l = initial_liquidity
 
         self.FEE_NUMERATOR = np.uint32(997)
         self.FEE_DENOMINATOR = np.uint32(1000)
@@ -44,11 +52,14 @@ class CPMM:
 
     # --- Section 2: Updating Liquidity ---
 
-    def addLiquidity(self, delta_e: int) -> tuple[np.uint32, np.uint32]:
+    def addLiquidity(self, delta_e: np.uint32) -> tuple[np.uint32, np.uint32]:
         """
         Mints liquidity. This follows Definition 2: addLiquidity_code.
         """
-        delta_e = np.uint32(delta_e)
+        # Type verification
+        if not isinstance(delta_e, np.uint32):
+            raise TypeError(f"delta_e must be np.uint32, got {type(delta_e)}")
+            
         if self.e == 0 or self.t == 0:
             raise ValueError("Cannot add liquidity to an uninitialized pool (e=0 or t=0).")
 
@@ -66,11 +77,14 @@ class CPMM:
 
         return delta_t, delta_l
 
-    def removeLiquidity(self, delta_l: int) -> tuple[np.uint32, np.uint32]:
+    def removeLiquidity(self, delta_l: np.uint32) -> tuple[np.uint32, np.uint32]:
         """
         Burns liquidity. This follows Definition 4: removeLiquidity_code.
         """
-        delta_l = np.uint32(delta_l)
+        # Type verification
+        if not isinstance(delta_l, np.uint32):
+            raise TypeError(f"delta_l must be np.uint32, got {type(delta_l)}")
+            
         if delta_l > self.l:
             raise ValueError("Cannot remove more liquidity than exists.")
 
@@ -90,11 +104,19 @@ class CPMM:
 
     # --- Section 3: Token Price Calculation ---
 
-    def getInputPrice(self, delta_x: int, x_reserve: int, y_reserve: int) -> np.uint32:
+    def getInputPrice(self, delta_x: np.uint32, x_reserve: np.uint32, y_reserve: np.uint32) -> np.uint32:
         """
         Calculates output tokens for a given input. Follows Definition 6.
         Uses uint64 for intermediate steps with overflow protection.
         """
+        # Type verification
+        if not isinstance(delta_x, np.uint32):
+            raise TypeError(f"delta_x must be np.uint32, got {type(delta_x)}")
+        if not isinstance(x_reserve, np.uint32):
+            raise TypeError(f"x_reserve must be np.uint32, got {type(x_reserve)}")
+        if not isinstance(y_reserve, np.uint32):
+            raise TypeError(f"y_reserve must be np.uint32, got {type(y_reserve)}")
+            
         u64_max = np.iinfo(np.uint64).max
         
         # Cast all inputs to uint64 for calculation
@@ -123,12 +145,20 @@ class CPMM:
             
         return np.uint32(numerator // denominator)
 
-    def getOutputPrice(self, delta_y: int, x_reserve: int, y_reserve: int) -> np.uint32:
+    def getOutputPrice(self, delta_y: np.uint32, x_reserve: np.uint32, y_reserve: np.uint32) -> np.uint32:
         """
         Calculates input tokens for a desired output. Follows Definition 8.
         Uses uint64 for intermediate steps with overflow protection.
         """
-        if delta_y >= y_reserve:
+        # Type verification
+        if not isinstance(delta_y, np.uint32):
+            raise TypeError(f"delta_y must be np.uint32, got {type(delta_y)}")
+        if not isinstance(x_reserve, np.uint32):
+            raise TypeError(f"x_reserve must be np.uint32, got {type(x_reserve)}")
+        if not isinstance(y_reserve, np.uint32):
+            raise TypeError(f"y_reserve must be np.uint32, got {type(y_reserve)}")
+            
+        if np.uint64(delta_y) >= np.uint64(y_reserve):
             raise ValueError("Output amount must be less than the total reserve.")
         
         u64_max = np.iinfo(np.uint64).max
@@ -156,40 +186,56 @@ class CPMM:
 
     # --- Section 4: Trading Tokens ---
 
-    def ethToToken(self, delta_e: int) -> np.uint32:
+    def ethToToken(self, delta_e: np.uint32) -> np.uint32:
         """Swaps Ether for tokens. Follows Section 4.1.2."""
-        delta_t = self.getInputPrice(np.uint32(delta_e), self.e, self.t)
-        self.e += np.uint32(delta_e)
+        # Type verification
+        if not isinstance(delta_e, np.uint32):
+            raise TypeError(f"delta_e must be np.uint32, got {type(delta_e)}")
+            
+        delta_t = self.getInputPrice(delta_e, self.e, self.t)
+        self.e += delta_e
         self.t -= delta_t
         return delta_t
 
-    def tokenToEth(self, delta_t: int) -> np.uint32:
+    def tokenToEth(self, delta_t: np.uint32) -> np.uint32:
         """Swaps tokens for Ether. Follows Section 4.3.2."""
-        delta_e = self.getInputPrice(np.uint32(delta_t), self.t, self.e)
-        self.t += np.uint32(delta_t)
+        # Type verification
+        if not isinstance(delta_t, np.uint32):
+            raise TypeError(f"delta_t must be np.uint32, got {type(delta_t)}")
+            
+        delta_e = self.getInputPrice(delta_t, self.t, self.e)
+        self.t += delta_t
         self.e -= delta_e
         return delta_e
         
-    def ethToTokenExact(self, delta_t: int) -> np.uint32:
+    def ethToTokenExact(self, delta_t: np.uint32) -> np.uint32:
         """Buys an exact amount of tokens with Ether. Follows Section 4.2.2."""
-        delta_e = self.getOutputPrice(np.uint32(delta_t), self.e, self.t)
+        # Type verification
+        if not isinstance(delta_t, np.uint32):
+            raise TypeError(f"delta_t must be np.uint32, got {type(delta_t)}")
+            
+        delta_e = self.getOutputPrice(delta_t, self.e, self.t)
         self.e += delta_e
-        self.t -= np.uint32(delta_t)
+        self.t -= delta_t
         return delta_e
 
-    def tokenToEthExact(self, delta_e: int) -> np.uint32:
+    def tokenToEthExact(self, delta_e: np.uint32) -> np.uint32:
         """Buys an exact amount of Ether with tokens. Follows Section 4.4.2."""
-        delta_t = self.getOutputPrice(np.uint32(delta_e), self.t, self.e)
+        # Type verification
+        if not isinstance(delta_e, np.uint32):
+            raise TypeError(f"delta_e must be np.uint32, got {type(delta_e)}")
+            
+        delta_t = self.getOutputPrice(delta_e, self.t, self.e)
         self.t += delta_t
-        self.e -= np.uint32(delta_e)
+        self.e -= delta_e
         return delta_t
 
 
 # --- Example Usage ---
 if __name__ == '__main__':
-    initial_eth = 20_000_000
-    initial_token = 1_000_000_000
-    initial_liquidity = 200_000_000
+    initial_eth = np.uint32(20_000_000)
+    initial_token = np.uint32(1_000_000_000)
+    initial_liquidity = np.uint32(200_000_000)
     
     pool = CPMM(initial_eth, initial_token, initial_liquidity)
     print("Initial Pool State:")
@@ -198,7 +244,7 @@ if __name__ == '__main__':
 
     # --- Trading Operations ---
     print("1. Trading ETH for Tokens (ethToToken):")
-    eth_in = 1_000_000
+    eth_in = np.uint32(1_000_000)
     tokens_out = pool.ethToToken(eth_in)
     print(f"Sold {eth_in} ETH and received {tokens_out} tokens.")
     print("Pool State after trade:")
@@ -209,10 +255,10 @@ if __name__ == '__main__':
     print("2. Testing Overflow Protection:")
     # Create a pool with large numbers close to the uint32 limit
     large_val = np.iinfo(np.uint32).max
-    overflow_pool = CPMM(large_val, large_val, large_val)
+    overflow_pool = CPMM(np.uint32(large_val), np.uint32(large_val), np.uint32(large_val))
     
     # This trade will cause the numerator in getInputPrice to exceed uint64
-    trade_amount = large_val // 2
+    trade_amount = np.uint32(large_val // 2)
     
     try:
         print(f"Attempting a large trade of {trade_amount} that should overflow...")

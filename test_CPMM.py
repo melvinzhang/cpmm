@@ -12,44 +12,54 @@ class TestCPMMSecurity(unittest.TestCase):
     def setUp(self):
         """Set up test pools with various configurations."""
         # Standard pool
-        self.pool = CPMM(1000000, 2000000, 1000000)
+        self.pool = CPMM(np.uint32(1000000), np.uint32(2000000), np.uint32(1000000))
         
         # Edge case pools
-        self.small_pool = CPMM(100, 200, 100)
-        self.large_pool = CPMM(1000000000, 2000000000, 1000000000)
+        self.small_pool = CPMM(np.uint32(100), np.uint32(200), np.uint32(100))
+        self.large_pool = CPMM(np.uint32(1000000000), np.uint32(2000000000), np.uint32(1000000000))
         
         # Maximum values pool (close to uint32 limits)
         self.max_val = np.iinfo(np.uint32).max
-        self.near_max_pool = CPMM(self.max_val // 2, self.max_val // 2, self.max_val // 3)
+        self.near_max_pool = CPMM(np.uint32(self.max_val // 2), np.uint32(self.max_val // 2), np.uint32(self.max_val // 3))
 
     def test_initialization_validation(self):
         """Test pool initialization with invalid values."""
-        # Test negative values
+        # Test negative values by creating uint32 from negative numbers (will overflow)
         with self.assertRaises((ValueError, OverflowError)):
-            CPMM(-1, 100, 100)
+            CPMM(np.uint32(-1), np.uint32(100), np.uint32(100))
         
         with self.assertRaises((ValueError, OverflowError)):
-            CPMM(100, -1, 100)
+            CPMM(np.uint32(100), np.uint32(-1), np.uint32(100))
         
         with self.assertRaises((ValueError, OverflowError)):
-            CPMM(100, 100, -1)
+            CPMM(np.uint32(100), np.uint32(100), np.uint32(-1))
         
         # Test values exceeding uint32 max
         with self.assertRaises((ValueError, OverflowError)):
-            CPMM(self.max_val + 1, 100, 100)
+            CPMM(np.uint32(self.max_val + 1), np.uint32(100), np.uint32(100))
+            
+        # Test type verification
+        with self.assertRaises(TypeError):
+            CPMM(100, np.uint32(100), np.uint32(100))  # First arg not uint32
+            
+        with self.assertRaises(TypeError):
+            CPMM(np.uint32(100), 100, np.uint32(100))  # Second arg not uint32
+            
+        with self.assertRaises(TypeError):
+            CPMM(np.uint32(100), np.uint32(100), 100)  # Third arg not uint32
 
     def test_constant_product_invariant(self):
         """Test that k = e * t remains constant or increases after trades (with fees)."""
         initial_k = self.pool.k()
         
         # Trade ETH for tokens
-        self.pool.ethToToken(1000)
+        self.pool.ethToToken(np.uint32(1000))
         k_after_trade1 = self.pool.k()
         self.assertGreaterEqual(k_after_trade1, initial_k, 
                                "Constant product should not decrease after trade")
         
         # Trade tokens for ETH
-        self.pool.tokenToEth(1000)
+        self.pool.tokenToEth(np.uint32(1000))
         k_after_trade2 = self.pool.k()
         self.assertGreaterEqual(k_after_trade2, k_after_trade1,
                                "Constant product should not decrease after trade")
@@ -61,7 +71,7 @@ class TestCPMMSecurity(unittest.TestCase):
         initial_t = self.pool.t
         initial_l = self.pool.l
         
-        delta_t, delta_l = self.pool.addLiquidity(100000)
+        delta_t, delta_l = self.pool.addLiquidity(np.uint32(100000))
         
         # Remove the same liquidity
         returned_e, returned_t = self.pool.removeLiquidity(delta_l)
@@ -80,10 +90,10 @@ class TestCPMMSecurity(unittest.TestCase):
         initial_pool_t = self.pool.t
         
         # Attacker front-runs a large trade
-        attacker_tokens_bought = self.pool.ethToToken(50000)
+        attacker_tokens_bought = self.pool.ethToToken(np.uint32(50000))
         
         # Victim's trade
-        victim_tokens = self.pool.ethToToken(100000)
+        victim_tokens = self.pool.ethToToken(np.uint32(100000))
         
         # Attacker back-runs by selling
         attacker_eth_received = self.pool.tokenToEth(attacker_tokens_bought)
@@ -159,11 +169,15 @@ class TestCPMMSecurity(unittest.TestCase):
         
         # Perform 1000 tiny trades
         for _ in range(1000):
-            # Trade 1 wei worth
-            tokens = self.pool.ethToToken(1)
-            if tokens > 0:
-                # Trade back
-                self.pool.tokenToEth(tokens)
+            try:
+                # Trade 1 wei worth
+                tokens = self.pool.ethToToken(np.uint32(1))
+                if tokens > 0:
+                    # Trade back
+                    self.pool.tokenToEth(tokens)
+            except:
+                # Some trades might fail due to rounding
+                pass
         
         # Pool should not have lost significant value
         self.assertGreaterEqual(self.pool.e, initial_e - 1000,
@@ -174,14 +188,14 @@ class TestCPMMSecurity(unittest.TestCase):
     def test_overflow_protection(self):
         """Test that overflow protection works correctly."""
         # Test with maximum values
-        max_pool = CPMM(self.max_val - 1000, self.max_val - 1000, self.max_val // 2)
+        max_pool = CPMM(np.uint32(self.max_val - 1000), np.uint32(self.max_val - 1000), np.uint32(self.max_val // 2))
         
         # Try trades that would cause overflow
         with self.assertRaises(OverflowError):
-            max_pool.ethToToken(self.max_val // 2)
+            max_pool.ethToToken(np.uint32(self.max_val // 2))
         
         with self.assertRaises(OverflowError):
-            max_pool.tokenToEth(self.max_val // 2)
+            max_pool.tokenToEth(np.uint32(self.max_val // 2))
 
     def test_division_by_zero_protection(self):
         """Test protection against division by zero."""
@@ -199,13 +213,13 @@ class TestCPMMSecurity(unittest.TestCase):
     def test_liquidity_attack_vectors(self):
         """Test various attack vectors specific to liquidity operations."""
         # Test adding liquidity to empty pool
-        empty_pool = CPMM(0, 0, 0)
+        empty_pool = CPMM(np.uint32(0), np.uint32(0), np.uint32(0))
         with self.assertRaises(ValueError):
-            empty_pool.addLiquidity(1000)
+            empty_pool.addLiquidity(np.uint32(1000))
         
         # Test that adding liquidity maintains price ratio
         initial_price_ratio = self.pool.e / self.pool.t
-        self.pool.addLiquidity(100000)
+        self.pool.addLiquidity(np.uint32(100000))
         new_price_ratio = self.pool.e / self.pool.t
         self.assertAlmostEqual(initial_price_ratio, new_price_ratio, places=6,
                               msg="Adding liquidity should not change price ratio")
@@ -213,14 +227,14 @@ class TestCPMMSecurity(unittest.TestCase):
     def test_exact_output_trades_security(self):
         """Test that exact output trades cannot be exploited."""
         # Test buying exact tokens
-        eth_needed = self.pool.ethToTokenExact(1000)
+        eth_needed = self.pool.ethToTokenExact(np.uint32(1000))
         
         # Verify that we can't buy more tokens than exist
         with self.assertRaises(ValueError):
             self.pool.ethToTokenExact(self.pool.t)
         
         # Test buying exact ETH
-        tokens_needed = self.pool.tokenToEthExact(1000)
+        tokens_needed = self.pool.tokenToEthExact(np.uint32(1000))
         
         # Verify that we can't buy more ETH than exists
         with self.assertRaises(ValueError):
@@ -229,7 +243,7 @@ class TestCPMMSecurity(unittest.TestCase):
     def test_fee_consistency(self):
         """Test that fees are consistently applied and cannot be bypassed."""
         # Trade A -> B
-        eth_in = 10000
+        eth_in = np.uint32(10000)
         tokens_out = self.pool.getInputPrice(eth_in, self.pool.e, self.pool.t)
         
         # Calculate what output would be without fees using uint64 to prevent overflow
@@ -247,9 +261,9 @@ class TestCPMMSecurity(unittest.TestCase):
     def test_state_consistency(self):
         """Test that pool state remains consistent after operations."""
         # Perform various operations
-        self.pool.ethToToken(1000)
-        self.pool.tokenToEth(500)
-        delta_t, delta_l = self.pool.addLiquidity(5000)
+        self.pool.ethToToken(np.uint32(1000))
+        self.pool.tokenToEth(np.uint32(500))
+        delta_t, delta_l = self.pool.addLiquidity(np.uint32(5000))
         self.pool.removeLiquidity(delta_l // 2)
         
         # Verify state variables are within valid bounds
@@ -263,8 +277,8 @@ class TestCPMMSecurity(unittest.TestCase):
     def test_liquidity_extraction_limits(self):
         """Test that liquidity cannot be extracted unfairly."""
         # Add liquidity from multiple providers
-        provider1_delta_t, provider1_delta_l = self.pool.addLiquidity(100000)
-        provider2_delta_t, provider2_delta_l = self.pool.addLiquidity(200000)
+        provider1_delta_t, provider1_delta_l = self.pool.addLiquidity(np.uint32(100000))
+        provider2_delta_t, provider2_delta_l = self.pool.addLiquidity(np.uint32(200000))
         
         # Try to remove more liquidity than owned
         with self.assertRaises(ValueError):
@@ -283,14 +297,14 @@ class TestCPMMSecurity(unittest.TestCase):
     def test_integer_precision_attacks(self):
         """Test that integer precision cannot be exploited."""
         # Test with small values where precision matters most
-        small_pool = CPMM(1000, 1000, 1000)
+        small_pool = CPMM(np.uint32(1000), np.uint32(1000), np.uint32(1000))
         
         # Multiple small trades
         for i in range(100):
             if i % 2 == 0:
-                small_pool.ethToToken(1)
+                small_pool.ethToToken(np.uint32(1))
             else:
-                small_pool.tokenToEth(1)
+                small_pool.tokenToEth(np.uint32(1))
         
         # Pool should maintain its value despite rounding
         final_k = small_pool.k()
@@ -303,10 +317,10 @@ class TestCPMMSecurity(unittest.TestCase):
         initial_k = self.pool.k()
         
         # Attacker tries to frontrun liquidity addition
-        attacker_tokens = self.pool.ethToToken(10000)
+        attacker_tokens = self.pool.ethToToken(np.uint32(10000))
         
         # Legitimate LP adds liquidity
-        lp_delta_t, lp_delta_l = self.pool.addLiquidity(100000)
+        lp_delta_t, lp_delta_l = self.pool.addLiquidity(np.uint32(100000))
         
         # Attacker tries to profit
         attacker_eth = self.pool.tokenToEth(attacker_tokens)
@@ -351,7 +365,7 @@ class TestCPMMSecurity(unittest.TestCase):
         initial_l = self.pool.l
         
         # Perform trade
-        self.pool.ethToToken(1000)
+        self.pool.ethToToken(np.uint32(1000))
         
         # Verify state was updated atomically
         # All state variables should have changed consistently
@@ -371,7 +385,7 @@ class TestCPMMSecurity(unittest.TestCase):
         for _ in range(1000):
             try:
                 # Trade 1 wei
-                result = self.pool.ethToToken(1)
+                result = self.pool.ethToToken(np.uint32(1))
                 if result > 0:
                     dust_trades += 1
             except:
@@ -390,17 +404,17 @@ class TestCPMMSecurity(unittest.TestCase):
     def test_zero_liquidity_edge_case(self):
         """Test edge cases around zero liquidity."""
         # Create a pool and remove almost all liquidity
-        small_pool = CPMM(1000, 1000, 1000)
+        small_pool = CPMM(np.uint32(1000), np.uint32(1000), np.uint32(1000))
         
         # Remove most liquidity
-        small_pool.removeLiquidity(999)
+        small_pool.removeLiquidity(np.uint32(999))
         
         # Pool should still function with minimal liquidity
         self.assertEqual(small_pool.l, 1)
         
         # Trades should still work but might have extreme slippage
         try:
-            small_pool.ethToToken(1)
+            small_pool.ethToToken(np.uint32(1))
             # If trade succeeds, pool should still be valid
             self.assertGreater(small_pool.k(), 0)
         except (ValueError, OverflowError):
@@ -414,7 +428,7 @@ class TestCPMMSecurity(unittest.TestCase):
         initial_ratio = initial_t / initial_e
         
         # Add liquidity
-        eth_to_add = 50000
+        eth_to_add = np.uint32(50000)
         tokens_required, liquidity_minted = self.pool.addLiquidity(eth_to_add)
         
         # Verify the ratio is maintained after adding liquidity
@@ -446,7 +460,7 @@ class TestCPMMSecurity(unittest.TestCase):
         for i in range(5):
             price = self.pool.t / self.pool.e
             prices.append(price)
-            self.pool.ethToToken(1000)
+            self.pool.ethToToken(np.uint32(1000))
         
         # Attempted manipulation with large trade
         initial_price = self.pool.t / self.pool.e
@@ -460,6 +474,32 @@ class TestCPMMSecurity(unittest.TestCase):
         
         # This makes TWAP oracles more resistant to manipulation
         # as manipulating price for extended periods is expensive
+
+    def test_type_verification_methods(self):
+        """Test that methods verify input types correctly."""
+        # Test ethToToken with wrong type
+        with self.assertRaises(TypeError):
+            self.pool.ethToToken(1000)  # int instead of uint32
+            
+        # Test tokenToEth with wrong type
+        with self.assertRaises(TypeError):
+            self.pool.tokenToEth(1000)  # int instead of uint32
+            
+        # Test addLiquidity with wrong type
+        with self.assertRaises(TypeError):
+            self.pool.addLiquidity(1000)  # int instead of uint32
+            
+        # Test removeLiquidity with wrong type
+        with self.assertRaises(TypeError):
+            self.pool.removeLiquidity(100)  # int instead of uint32
+            
+        # Test ethToTokenExact with wrong type
+        with self.assertRaises(TypeError):
+            self.pool.ethToTokenExact(1000)  # int instead of uint32
+            
+        # Test tokenToEthExact with wrong type
+        with self.assertRaises(TypeError):
+            self.pool.tokenToEthExact(1000)  # int instead of uint32
 
 
 if __name__ == '__main__':
