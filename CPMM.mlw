@@ -1,5 +1,6 @@
 module CPMM
 
+  use int.Int
   use mach.int.UInt32GMP
   use mach.int.UInt64GMP
   use option.Option
@@ -16,7 +17,9 @@ module CPMM
   let create (ether_reserve: UInt32GMP.uint32) (token_reserve: UInt32GMP.uint32) (initial_liquidity: UInt32GMP.uint32) : cpmm =
     { e = ether_reserve; t = token_reserve; l = initial_liquidity }
 
-  let k (pool: cpmm) : UInt64GMP.uint64 =
+  let k (pool: cpmm) : UInt64GMP.uint64 
+    ensures {result = pool.e * pool.t}
+  =
     UInt64GMP.of_uint32 pool.e * UInt64GMP.of_uint32 pool.t
 
   let get_input_price (delta_x: UInt32GMP.uint32) (x_reserve: UInt32GMP.uint32) (y_reserve: UInt32GMP.uint32) : option UInt32GMP.uint32 =
