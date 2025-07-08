@@ -501,6 +501,28 @@ class TestCPMMSecurity(unittest.TestCase):
         with self.assertRaises(TypeError):
             self.pool.tokenToEthExact(1000)  # int instead of uint32
 
+    def test_verify_uint32_helper(self):
+        """Test the _verify_uint32 helper function directly."""
+        # Test valid uint32
+        try:
+            CPMM._verify_uint32(np.uint32(100), "test_param")
+            # Should not raise any exception
+        except:
+            self.fail("_verify_uint32 raised exception for valid uint32")
+            
+        # Test invalid types
+        with self.assertRaises(TypeError) as cm:
+            CPMM._verify_uint32(100, "test_param")
+        self.assertIn("test_param must be np.uint32", str(cm.exception))
+        
+        with self.assertRaises(TypeError) as cm:
+            CPMM._verify_uint32(np.int32(100), "test_param")
+        self.assertIn("test_param must be np.uint32", str(cm.exception))
+        
+        with self.assertRaises(TypeError) as cm:
+            CPMM._verify_uint32("100", "test_param")
+        self.assertIn("test_param must be np.uint32", str(cm.exception))
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

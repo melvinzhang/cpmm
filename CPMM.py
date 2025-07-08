@@ -18,6 +18,21 @@ class CPMM:
         FEE_DENOMINATOR (np.uint32): The denominator for the trading fee (e.g., 1000).
     """
 
+    @staticmethod
+    def _verify_uint32(value, param_name: str) -> None:
+        """
+        Helper function to verify that a value is of type np.uint32.
+        
+        Args:
+            value: The value to verify
+            param_name (str): The parameter name for error messages
+            
+        Raises:
+            TypeError: If value is not np.uint32
+        """
+        if not isinstance(value, np.uint32):
+            raise TypeError(f"{param_name} must be np.uint32, got {type(value)}")
+
     def __init__(self, ether_reserve: np.uint32, token_reserve: np.uint32, initial_liquidity: np.uint32):
         """
         Initializes the CPMM with given reserves and liquidity.
@@ -28,12 +43,9 @@ class CPMM:
             initial_liquidity (np.uint32): The initial amount of liquidity tokens.
         """
         # Type verification
-        if not isinstance(ether_reserve, np.uint32):
-            raise TypeError(f"ether_reserve must be np.uint32, got {type(ether_reserve)}")
-        if not isinstance(token_reserve, np.uint32):
-            raise TypeError(f"token_reserve must be np.uint32, got {type(token_reserve)}")
-        if not isinstance(initial_liquidity, np.uint32):
-            raise TypeError(f"initial_liquidity must be np.uint32, got {type(initial_liquidity)}")
+        self._verify_uint32(ether_reserve, "ether_reserve")
+        self._verify_uint32(token_reserve, "token_reserve")
+        self._verify_uint32(initial_liquidity, "initial_liquidity")
             
         self.e = ether_reserve
         self.t = token_reserve
@@ -57,8 +69,7 @@ class CPMM:
         Mints liquidity. This follows Definition 2: addLiquidity_code.
         """
         # Type verification
-        if not isinstance(delta_e, np.uint32):
-            raise TypeError(f"delta_e must be np.uint32, got {type(delta_e)}")
+        self._verify_uint32(delta_e, "delta_e")
             
         if self.e == 0 or self.t == 0:
             raise ValueError("Cannot add liquidity to an uninitialized pool (e=0 or t=0).")
@@ -82,8 +93,7 @@ class CPMM:
         Burns liquidity. This follows Definition 4: removeLiquidity_code.
         """
         # Type verification
-        if not isinstance(delta_l, np.uint32):
-            raise TypeError(f"delta_l must be np.uint32, got {type(delta_l)}")
+        self._verify_uint32(delta_l, "delta_l")
             
         if delta_l > self.l:
             raise ValueError("Cannot remove more liquidity than exists.")
@@ -110,12 +120,9 @@ class CPMM:
         Uses uint64 for intermediate steps with overflow protection.
         """
         # Type verification
-        if not isinstance(delta_x, np.uint32):
-            raise TypeError(f"delta_x must be np.uint32, got {type(delta_x)}")
-        if not isinstance(x_reserve, np.uint32):
-            raise TypeError(f"x_reserve must be np.uint32, got {type(x_reserve)}")
-        if not isinstance(y_reserve, np.uint32):
-            raise TypeError(f"y_reserve must be np.uint32, got {type(y_reserve)}")
+        self._verify_uint32(delta_x, "delta_x")
+        self._verify_uint32(x_reserve, "x_reserve")
+        self._verify_uint32(y_reserve, "y_reserve")
             
         u64_max = np.iinfo(np.uint64).max
         
@@ -151,12 +158,9 @@ class CPMM:
         Uses uint64 for intermediate steps with overflow protection.
         """
         # Type verification
-        if not isinstance(delta_y, np.uint32):
-            raise TypeError(f"delta_y must be np.uint32, got {type(delta_y)}")
-        if not isinstance(x_reserve, np.uint32):
-            raise TypeError(f"x_reserve must be np.uint32, got {type(x_reserve)}")
-        if not isinstance(y_reserve, np.uint32):
-            raise TypeError(f"y_reserve must be np.uint32, got {type(y_reserve)}")
+        self._verify_uint32(delta_y, "delta_y")
+        self._verify_uint32(x_reserve, "x_reserve")
+        self._verify_uint32(y_reserve, "y_reserve")
             
         if np.uint64(delta_y) >= np.uint64(y_reserve):
             raise ValueError("Output amount must be less than the total reserve.")
@@ -189,8 +193,7 @@ class CPMM:
     def ethToToken(self, delta_e: np.uint32) -> np.uint32:
         """Swaps Ether for tokens. Follows Section 4.1.2."""
         # Type verification
-        if not isinstance(delta_e, np.uint32):
-            raise TypeError(f"delta_e must be np.uint32, got {type(delta_e)}")
+        self._verify_uint32(delta_e, "delta_e")
             
         delta_t = self.getInputPrice(delta_e, self.e, self.t)
         self.e += delta_e
@@ -200,8 +203,7 @@ class CPMM:
     def tokenToEth(self, delta_t: np.uint32) -> np.uint32:
         """Swaps tokens for Ether. Follows Section 4.3.2."""
         # Type verification
-        if not isinstance(delta_t, np.uint32):
-            raise TypeError(f"delta_t must be np.uint32, got {type(delta_t)}")
+        self._verify_uint32(delta_t, "delta_t")
             
         delta_e = self.getInputPrice(delta_t, self.t, self.e)
         self.t += delta_t
@@ -211,8 +213,7 @@ class CPMM:
     def ethToTokenExact(self, delta_t: np.uint32) -> np.uint32:
         """Buys an exact amount of tokens with Ether. Follows Section 4.2.2."""
         # Type verification
-        if not isinstance(delta_t, np.uint32):
-            raise TypeError(f"delta_t must be np.uint32, got {type(delta_t)}")
+        self._verify_uint32(delta_t, "delta_t")
             
         delta_e = self.getOutputPrice(delta_t, self.e, self.t)
         self.e += delta_e
@@ -222,8 +223,7 @@ class CPMM:
     def tokenToEthExact(self, delta_e: np.uint32) -> np.uint32:
         """Buys an exact amount of Ether with tokens. Follows Section 4.4.2."""
         # Type verification
-        if not isinstance(delta_e, np.uint32):
-            raise TypeError(f"delta_e must be np.uint32, got {type(delta_e)}")
+        self._verify_uint32(delta_e, "delta_e")
             
         delta_t = self.getOutputPrice(delta_e, self.t, self.e)
         self.t += delta_t
