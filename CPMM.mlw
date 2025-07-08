@@ -5,9 +5,9 @@ module CPMM
   use option.Option
 
   type cpmm = {
-    mutable e: UInt32GMP.uint32;
-    mutable t: UInt32GMP.uint32; 
-    mutable l: UInt32GMP.uint32;
+    e: UInt32GMP.uint32;
+    t: UInt32GMP.uint32; 
+    l: UInt32GMP.uint32;
   }
 
   type liquidity_result = {
@@ -39,16 +39,15 @@ module CPMM
     else
       Some (UInt64GMP.to_uint32 (numerator / denominator))
 
-  let eth_to_token (pool: cpmm) (delta_e: UInt32GMP.uint32) : option UInt32GMP.uint32 =
+  let eth_to_token (pool: cpmm) (delta_e: UInt32GMP.uint32) : option (UInt32GMP.uint32, cpmm) =
     match get_input_price delta_e pool.e pool.t with
     | None -> None
     | Some delta_t ->
-        pool.e <- pool.e + delta_e;
-        pool.t <- pool.t - delta_t;
-        Some delta_t
+        let new_pool = { e = pool.e + delta_e; t = pool.t - delta_t; l = pool.l } in
+        Some (delta_t, new_pool)
     end
 
-  let add_liquidity (pool: cpmm) (delta_e: UInt32GMP.uint32) : option liquidity_result =
+  let add_liquidity (pool: cpmm) (delta_e: UInt32GMP.uint32) : option (liquidity_result, cpmm) =
     if pool.e = 0 || pool.t = 0 then
       None
     else
@@ -63,10 +62,34 @@ module CPMM
       let delta_t = UInt64GMP.to_uint32 delta_t_calc in
       let delta_l = UInt64GMP.to_uint32 delta_l_calc in
       
-      pool.e <- pool.e + delta_e;
-      pool.t <- pool.t + delta_t;
-      pool.l <- pool.l + delta_l;
+      let new_pool = { e = pool.e + delta_e; t = pool.t + delta_t; l = pool.l + delta_l } in
+      let result = { delta_t = delta_t; delta_l = delta_l } in
       
-      Some { delta_t = delta_t; delta_l = delta_l }
+      Some (result, new_pool)
+
+  type removal_result = {
+    removed_e: UInt32GMP.uint32;
+    removed_t: UInt32GMP.uint32;
+  }
+
+  let remove_liquidity (pool: cpmm) (delta_l: UInt32GMP.uint32) : option (removal_result, cpmm) =
+    if delta_l > pool.l then
+      None
+    else
+      let u64_delta_l = UInt64GMP.of_uint32 delta_l in
+      let u64_e = UInt64GMP.of_uint32 pool.e in
+      let u64_t = UInt64GMP.of_uint32 pool.t in
+      let u64_l = UInt64GMP.of_uint32 pool.l in
+      
+      let delta_e_calc = u64_delta_l * u64_e / u64_l in
+      let delta_t_calc = u64_delta_l * u64_t / u64_l in
+      
+      let delta_e = UInt64GMP.to_uint32 delta_e_calc in
+      let delta_t = UInt64GMP.to_uint32 delta_t_calc in
+      
+      let new_pool = { e = pool.e - delta_e; t = pool.t - delta_t; l = pool.l - delta_l } in
+      let result = { removed_e = delta_e; removed_t = delta_t } in
+      
+      Some (result, new_pool)
 
 end
