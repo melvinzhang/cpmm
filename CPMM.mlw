@@ -39,11 +39,53 @@ module CPMM
     else
       Some (UInt64GMP.to_uint32 (numerator / denominator))
 
+  let get_output_price (delta_y: UInt32GMP.uint32) (x_reserve: UInt32GMP.uint32) (y_reserve: UInt32GMP.uint32) : option UInt32GMP.uint32 =
+    if delta_y >= y_reserve then
+      None
+    else
+      let u64_delta_y = UInt64GMP.of_uint32 delta_y in
+      let u64_x = UInt64GMP.of_uint32 x_reserve in
+      let u64_y = UInt64GMP.of_uint32 y_reserve in
+      let u64_fee_num = UInt64GMP.of_uint32 fee_numerator in
+      let u64_fee_den = UInt64GMP.of_uint32 fee_denominator in
+      
+      let numerator = u64_fee_den * u64_x * u64_delta_y in
+      let denominator = u64_fee_num * (u64_y - u64_delta_y) in
+      
+      if denominator = 0 then
+        None
+      else
+        Some (UInt64GMP.to_uint32 (numerator / denominator) + 1)
+
   let eth_to_token (pool: cpmm) (delta_e: UInt32GMP.uint32) : option (UInt32GMP.uint32, cpmm) =
     match get_input_price delta_e pool.e pool.t with
     | None -> None
     | Some delta_t ->
         let new_pool = { e = pool.e + delta_e; t = pool.t - delta_t; l = pool.l } in
+        Some (delta_t, new_pool)
+    end
+
+  let token_to_eth (pool: cpmm) (delta_t: UInt32GMP.uint32) : option (UInt32GMP.uint32, cpmm) =
+    match get_input_price delta_t pool.t pool.e with
+    | None -> None
+    | Some delta_e ->
+        let new_pool = { e = pool.e - delta_e; t = pool.t + delta_t; l = pool.l } in
+        Some (delta_e, new_pool)
+    end
+
+  let eth_to_token_exact (pool: cpmm) (delta_t: UInt32GMP.uint32) : option (UInt32GMP.uint32, cpmm) =
+    match get_output_price delta_t pool.e pool.t with
+    | None -> None
+    | Some delta_e ->
+        let new_pool = { e = pool.e + delta_e; t = pool.t - delta_t; l = pool.l } in
+        Some (delta_e, new_pool)
+    end
+
+  let token_to_eth_exact (pool: cpmm) (delta_e: UInt32GMP.uint32) : option (UInt32GMP.uint32, cpmm) =
+    match get_output_price delta_e pool.t pool.e with
+    | None -> None
+    | Some delta_t ->
+        let new_pool = { e = pool.e - delta_e; t = pool.t + delta_t; l = pool.l } in
         Some (delta_t, new_pool)
     end
 
