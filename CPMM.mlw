@@ -10,11 +10,6 @@ module CPMM
     l: UInt32GMP.uint32;
   }
 
-  type liquidity_result = {
-    delta_t: UInt32GMP.uint32;
-    delta_l: UInt32GMP.uint32;
-  }
-
   let constant fee_numerator = (997: UInt32GMP.uint32)
   let constant fee_denominator = (1000: UInt32GMP.uint32)
 
@@ -89,7 +84,7 @@ module CPMM
         Some (delta_t, new_pool)
     end
 
-  let add_liquidity (pool: cpmm) (delta_e: UInt32GMP.uint32) : option (liquidity_result, cpmm) =
+  let add_liquidity (pool: cpmm) (delta_e: UInt32GMP.uint32) : option (UInt32GMP.uint32, UInt32GMP.uint32, cpmm) =
     if pool.e = 0 || pool.t = 0 then
       None
     else
@@ -105,16 +100,10 @@ module CPMM
       let delta_l = UInt64GMP.to_uint32 delta_l_calc in
       
       let new_pool = { e = pool.e + delta_e; t = pool.t + delta_t; l = pool.l + delta_l } in
-      let result = { delta_t = delta_t; delta_l = delta_l } in
       
-      Some (result, new_pool)
+      Some (delta_t, delta_l, new_pool)
 
-  type removal_result = {
-    removed_e: UInt32GMP.uint32;
-    removed_t: UInt32GMP.uint32;
-  }
-
-  let remove_liquidity (pool: cpmm) (delta_l: UInt32GMP.uint32) : option (removal_result, cpmm) =
+  let remove_liquidity (pool: cpmm) (delta_l: UInt32GMP.uint32) : option (UInt32GMP.uint32, UInt32GMP.uint32, cpmm) =
     if delta_l > pool.l then
       None
     else
@@ -130,8 +119,7 @@ module CPMM
       let delta_t = UInt64GMP.to_uint32 delta_t_calc in
       
       let new_pool = { e = pool.e - delta_e; t = pool.t - delta_t; l = pool.l - delta_l } in
-      let result = { removed_e = delta_e; removed_t = delta_t } in
       
-      Some (result, new_pool)
+      Some (delta_e, delta_l, new_pool)
 
 end
