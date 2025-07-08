@@ -1,0 +1,72 @@
+module CPMM
+
+  use mach.int.UInt32GMP
+  use mach.int.UInt64GMP
+  use option.Option
+
+  type cpmm = {
+    mutable e: UInt32GMP.uint32;
+    mutable t: UInt32GMP.uint32; 
+    mutable l: UInt32GMP.uint32;
+  }
+
+  type liquidity_result = {
+    delta_t: UInt32GMP.uint32;
+    delta_l: UInt32GMP.uint32;
+  }
+
+  let constant fee_numerator = (997: UInt32GMP.uint32)
+  let constant fee_denominator = (1000: UInt32GMP.uint32)
+
+  let create (ether_reserve: UInt32GMP.uint32) (token_reserve: UInt32GMP.uint32) (initial_liquidity: UInt32GMP.uint32) : cpmm =
+    { e = ether_reserve; t = token_reserve; l = initial_liquidity }
+
+  let k (pool: cpmm) : UInt64GMP.uint64 =
+    UInt64GMP.of_uint32 pool.e * UInt64GMP.of_uint32 pool.t
+
+  let get_input_price (delta_x: UInt32GMP.uint32) (x_reserve: UInt32GMP.uint32) (y_reserve: UInt32GMP.uint32) : option UInt32GMP.uint32 =
+    let u64_delta_x = UInt64GMP.of_uint32 delta_x in
+    let u64_x = UInt64GMP.of_uint32 x_reserve in
+    let u64_y = UInt64GMP.of_uint32 y_reserve in
+    let u64_fee_num = UInt64GMP.of_uint32 fee_numerator in
+    let u64_fee_den = UInt64GMP.of_uint32 fee_denominator in
+    
+    let numerator = u64_fee_num * u64_delta_x * u64_y in
+    let denominator = u64_fee_den * u64_x + u64_fee_num * u64_delta_x in
+    
+    if denominator = 0x0 then
+      Some 0x0
+    else
+      Some (UInt64GMP.to_uint32 (numerator / denominator))
+
+  let eth_to_token (pool: cpmm) (delta_e: UInt32GMP.uint32) : option UInt32GMP.uint32 =
+    match get_input_price delta_e pool.e pool.t with
+    | None -> None
+    | Some delta_t ->
+        pool.e <- pool.e + delta_e;
+        pool.t <- pool.t - delta_t;
+        Some delta_t
+    end
+
+  let add_liquidity (pool: cpmm) (delta_e: UInt32GMP.uint32) : option liquidity_result =
+    if pool.e = 0x0 || pool.t = 0x0 then
+      None
+    else
+      let u64_delta_e = UInt64GMP.of_uint32 delta_e in
+      let u64_t = UInt64GMP.of_uint32 pool.t in
+      let u64_e = UInt64GMP.of_uint32 pool.e in
+      let u64_l = UInt64GMP.of_uint32 pool.l in
+      
+      let delta_t_calc = u64_delta_e * u64_t / u64_e + 0x1 in
+      let delta_l_calc = u64_delta_e * u64_l / u64_e in
+      
+      let delta_t = UInt64GMP.to_uint32 delta_t_calc in
+      let delta_l = UInt64GMP.to_uint32 delta_l_calc in
+      
+      pool.e <- pool.e + delta_e;
+      pool.t <- pool.t + delta_t;
+      pool.l <- pool.l + delta_l;
+      
+      Some { delta_t = delta_t; delta_l = delta_l }
+
+end
