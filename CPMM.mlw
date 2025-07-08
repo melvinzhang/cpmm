@@ -35,7 +35,7 @@ module CPMM
     let denominator = u64_fee_den * u64_x + u64_fee_num * u64_delta_x in
     
     if denominator = 0 then
-      Some 0
+      None
     else
       Some (UInt64GMP.to_uint32 (numerator / denominator))
 
