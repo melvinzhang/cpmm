@@ -34,8 +34,8 @@ module CPMM
     let numerator = u64_fee_num * u64_delta_x * u64_y in
     let denominator = u64_fee_den * u64_x + u64_fee_num * u64_delta_x in
     
-    if denominator = 0x0 then
-      Some 0x0
+    if denominator = 0 then
+      Some 0
     else
       Some (UInt64GMP.to_uint32 (numerator / denominator))
 
@@ -49,7 +49,7 @@ module CPMM
     end
 
   let add_liquidity (pool: cpmm) (delta_e: UInt32GMP.uint32) : option liquidity_result =
-    if pool.e = 0x0 || pool.t = 0x0 then
+    if pool.e = 0 || pool.t = 0 then
       None
     else
       let u64_delta_e = UInt64GMP.of_uint32 delta_e in
@@ -57,7 +57,7 @@ module CPMM
       let u64_e = UInt64GMP.of_uint32 pool.e in
       let u64_l = UInt64GMP.of_uint32 pool.l in
       
-      let delta_t_calc = u64_delta_e * u64_t / u64_e + 0x1 in
+      let delta_t_calc = u64_delta_e * u64_t / u64_e + 1 in
       let delta_l_calc = u64_delta_e * u64_l / u64_e in
       
       let delta_t = UInt64GMP.to_uint32 delta_t_calc in
