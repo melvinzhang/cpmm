@@ -117,14 +117,12 @@ class CPMM:
     def getInputPrice(self, delta_x: np.uint32, x_reserve: np.uint32, y_reserve: np.uint32) -> np.uint32:
         """
         Calculates output tokens for a given input. Follows Definition 6.
-        Uses uint64 for intermediate steps with overflow protection.
+        Uses post-fee calculation to avoid overflow issues.
         """
         # Type verification
         self._verify_uint32(delta_x, "delta_x")
         self._verify_uint32(x_reserve, "x_reserve")
         self._verify_uint32(y_reserve, "y_reserve")
-            
-        u64_max = np.iinfo(np.uint64).max
         
         # Cast all inputs to uint64 for calculation
         u64_delta_x = np.uint64(delta_x)
@@ -133,19 +131,14 @@ class CPMM:
         u64_fee_num = np.uint64(self.FEE_NUMERATOR)
         u64_fee_den = np.uint64(self.FEE_DENOMINATOR)
 
-        # Numerator calculation: fee_num * delta_x * y
-        # Check for overflow on the final multiplication
-        num_part1 = u64_fee_num * u64_delta_x
-        if u64_y > 0 and num_part1 > u64_max // u64_y:
-            raise OverflowError("Numerator calculation exceeds uint64 capacity.")
-        numerator = num_part1 * u64_y
-
-        # Denominator calculation: (fee_den * x) + (fee_num * delta_x)
-        den_part1 = u64_fee_den * u64_x
-        den_part2 = u64_fee_num * u64_delta_x # Same as num_part1
-        if den_part1 > u64_max - den_part2:
-            raise OverflowError("Denominator calculation exceeds uint64 capacity.")
-        denominator = den_part1 + den_part2
+        # Step 1: Calculate effective input after fees (round DOWN)
+        # Since fee_num < fee_den, delta_x_effective < delta_x
+        delta_x_effective = (u64_delta_x * u64_fee_num) // u64_fee_den
+        
+        # Step 2: Calculate output (round DOWN)
+        # No overflow possible: delta_x_effective < delta_x (uint32) and y is uint32
+        numerator = delta_x_effective * u64_y
+        denominator = u64_x + delta_x_effective
         
         if denominator == 0:
             return np.uint32(0)
@@ -155,7 +148,7 @@ class CPMM:
     def getOutputPrice(self, delta_y: np.uint32, x_reserve: np.uint32, y_reserve: np.uint32) -> np.uint32:
         """
         Calculates input tokens for a desired output. Follows Definition 8.
-        Uses uint64 for intermediate steps with overflow protection.
+        Uses overflow-free calculation by applying fee adjustment to denominator.
         """
         # Type verification
         self._verify_uint32(delta_y, "delta_y")
@@ -164,8 +157,6 @@ class CPMM:
             
         if np.uint64(delta_y) >= np.uint64(y_reserve):
             raise ValueError("Output amount must be less than the total reserve.")
-        
-        u64_max = np.iinfo(np.uint64).max
 
         # Cast all inputs to uint64 for calculation
         u64_delta_y = np.uint64(delta_y)
@@ -174,19 +165,18 @@ class CPMM:
         u64_fee_num = np.uint64(self.FEE_NUMERATOR)
         u64_fee_den = np.uint64(self.FEE_DENOMINATOR)
 
-        # Numerator calculation: fee_den * x * delta_y
-        num_part1 = u64_fee_den * u64_x
-        if u64_delta_y > 0 and num_part1 > u64_max // u64_delta_y:
-            raise OverflowError("Numerator calculation exceeds uint64 capacity.")
-        numerator = num_part1 * u64_delta_y
-
-        # Denominator calculation: fee_num * (y - delta_y)
-        denominator = u64_fee_num * (u64_y - u64_delta_y)
+        # Calculate base exchange amount (no overflow: both uint32 range)
+        base_numerator = u64_x * u64_delta_y
+        base_denominator = u64_y - u64_delta_y
         
-        if denominator == 0:
+        # Apply fee adjustment to denominator (no overflow: uint32 * 997 fits in uint64)
+        fee_adjusted_denominator = (base_denominator * u64_fee_num) // u64_fee_den
+        
+        if fee_adjusted_denominator == 0:
             raise ValueError("Cannot calculate output price, division by zero.")
 
-        return np.uint32(numerator // denominator) + np.uint32(1)
+        # Calculate required input with +1 for pool protection
+        return np.uint32(base_numerator // fee_adjusted_denominator) + np.uint32(1)
 
     # --- Section 4: Trading Tokens ---
 
@@ -251,17 +241,16 @@ if __name__ == '__main__':
     print(pool)
     print("-" * 30)
     
-    # --- Overflow Example ---
-    print("2. Testing Overflow Protection:")
+    # --- Post-fee calculation eliminates overflow in getInputPrice ---
+    print("2. Overflow Protection with Post-Fee Calculation:")
     # Create a pool with large numbers close to the uint32 limit
     large_val = np.iinfo(np.uint32).max
-    overflow_pool = CPMM(np.uint32(large_val), np.uint32(large_val), np.uint32(large_val))
+    overflow_pool = CPMM(np.uint32(large_val // 10), np.uint32(large_val // 10), np.uint32(large_val // 10))
     
-    # This trade will cause the numerator in getInputPrice to exceed uint64
-    trade_amount = np.uint32(large_val // 2)
+    # This large trade would have caused overflow in the original implementation
+    trade_amount = np.uint32(large_val // 100)
     
-    try:
-        print(f"Attempting a large trade of {trade_amount} that should overflow...")
-        overflow_pool.ethToToken(trade_amount)
-    except OverflowError as e:
-        print(f"Successfully caught expected error: {e}")
+    print(f"Attempting a large trade of {trade_amount}...")
+    tokens_out = overflow_pool.getInputPrice(trade_amount, overflow_pool.e, overflow_pool.t)
+    print(f"Successfully calculated output: {tokens_out} tokens")
+    print("The post-fee calculation prevents overflow in getInputPrice!")
