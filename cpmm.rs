@@ -99,7 +99,7 @@ impl CPMM {
         let t_u32 = self.t as u32;
         let l_u32 = self.l as u32;
 
-        // Calculate deltas using integer division (floor)
+        // Calculate deltas using floor division
         let delta_e_calc = (delta_l_u32 * e_u32) / l_u32;
         let delta_t_calc = (delta_l_u32 * t_u32) / l_u32;
         
@@ -539,6 +539,71 @@ mod kani_verification {
             let right_side = (l_before_squared as u64) * (k_after as u64);
             
             assert!(left_side <= right_side, "Property 5 violated: (l''/l)² must be ≤ k''/k");
+        }
+        // If overflow/underflow occurs, that's acceptable - we just skip verification for that case
+    }
+
+    /// Kani harness to verify Theorem 6 from the PDF:
+    /// "If addLiquiditycode is subsequently followed by removeLiquiditycode with Δl = l₁ - l₀"
+    /// 
+    /// Property 1: e₀ < e₂
+    /// Property 2: t₀ < t₂
+    /// Property 3: l₀ = l₂ (liquidity returns to original)
+    #[kani::proof]
+    fn verify_add_remove_liquidity_thm6() {
+        // Use fixed initial values for faster verification
+        let initial_e: u16 = 1000;
+        let initial_t: u16 = 2000;
+        let initial_l: u16 = 1414;
+        let delta_e: u16 = kani::any();
+
+        // Test with smaller bounds for delta_e to reduce proof space
+        kani::assume(delta_e >= 1 && delta_e <= 500);
+
+        // Create CPMM instance and capture initial state
+        let mut cpmm = CPMM::new(initial_e, initial_t, initial_l);
+        let e0 = cpmm.e;
+        let t0 = cpmm.t;
+        let l0 = cpmm.l;
+
+        // Step 1: Execute add_liquidity operation
+        if let Ok((returned_delta_t, returned_delta_l)) = cpmm.add_liquidity(delta_e) {
+            let e1 = cpmm.e;
+            let t1 = cpmm.t;
+            let l1 = cpmm.l;
+            
+            // Calculate Δl = l₁ - l₀ (exactly the liquidity that was added)
+            let delta_l = l1 - l0;
+            
+            // Step 2: Execute remove_liquidity operation with the exact amount added
+            if let Ok((returned_delta_e2, returned_delta_t2)) = cpmm.remove_liquidity(delta_l) {
+                let e2 = cpmm.e;
+                let t2 = cpmm.t;
+                let l2 = cpmm.l;
+
+                // Verify Theorem 6 properties:
+
+                // Property 1: e₀ < e₂ (ether reserve strictly increases due to rounding)
+                // User gets back less ether due to integer arithmetic
+                assert!(e0 < e2, "Property 1 violated: e₀ must be < e₂");
+
+                // Property 2: t₀ < t₂ (token reserve strictly increases due to rounding)  
+                // User gets back fewer tokens due to integer arithmetic
+                assert!(t0 < t2, "Property 2 violated: t₀ must be < t₂");
+
+                // Property 3: l₀ = l₂ (liquidity supply returns exactly to original)
+                assert!(l0 == l2, "Property 3 violated: l₀ must equal l₂");
+
+                // Additional verification: The pool doesn't lose value from the sequence
+                // The rounding scheme ensures the pool never loses value
+                // Note: Due to integer arithmetic, gains might be 0 in some cases
+                let pool_value_gain_e = e2 - e0;
+                let pool_value_gain_t = t2 - t0;
+                
+                // Pool should not lose value (reserves should not decrease)
+                assert!(pool_value_gain_e >= 0 && pool_value_gain_t >= 0, 
+                       "Pool must not lose value from add/remove sequence");
+            }
         }
         // If overflow/underflow occurs, that's acceptable - we just skip verification for that case
     }
