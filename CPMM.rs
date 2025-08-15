@@ -300,6 +300,10 @@ mod verification {
             assert!(pool.t == t - delta_t);
             assert!(pool.l == l - delta_l);
             
+            // Verify that k decreases or stays the same
+            let k_after = pool.k();
+            assert!(k_after <= k_before);
+            
             // Verify the formulas used
             assert_eq!(delta_e, ((delta_l as u64 * e as u64) / l as u64) as u32);
             assert_eq!(delta_t, ((delta_l as u64 * t as u64) / l as u64) as u32);
