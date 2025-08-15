@@ -138,9 +138,9 @@ impl CPMM {
     /// 
     /// Implementation: (997 * Δx * y) / (1000 * x + 997 * Δx)
     /// where / is integer division with truncation (floor)
-    pub fn get_input_price(&self, delta_x: u16, x_reserve: u16, y_reserve: u16) -> u16 {
+    pub fn get_input_price(&self, delta_x: u16, x_reserve: u16, y_reserve: u16) -> Result<u16, &'static str> {
         if x_reserve == 0 {
-            return 0;
+            return Ok(0);
         }
 
         let delta_x_u32 = delta_x as u32;
@@ -149,14 +149,31 @@ impl CPMM {
 
         // Using ρ = 0.003 (0.3% fee), so γ = 0.997
         // Formula: (997 * Δx * y) / (1000 * x + 997 * Δx)
-        let numerator = 997u32 * delta_x_u32 * y_u32;
-        let denominator = 1000u32 * x_u32 + 997u32 * delta_x_u32;
+        
+        // Check for overflow in numerator calculation: 997 * Δx * y
+        let first_mult = delta_x_u32.checked_mul(997u32)
+            .ok_or("delta_x * 997 overflows u32")?;
+        let numerator = first_mult.checked_mul(y_u32)
+            .ok_or("numerator calculation overflows u32")?;
+        
+        // Check for overflow in denominator calculation: 1000 * x + 997 * Δx
+        let first_term = x_u32.checked_mul(1000u32)
+            .ok_or("x * 1000 overflows u32")?;
+        let second_term = delta_x_u32.checked_mul(997u32)
+            .ok_or("delta_x * 997 overflows u32")?;
+        let denominator = first_term.checked_add(second_term)
+            .ok_or("denominator calculation overflows u32")?;
 
         if denominator == 0 {
-            return 0;
+            return Ok(0);
         }
 
-        (numerator / denominator) as u16
+        let result = numerator / denominator;
+        if result > u16::MAX as u32 {
+            return Err("result overflows u16");
+        }
+
+        Ok(result as u16)
     }
 
     /// Definition 8: getOutputPricecode
@@ -167,9 +184,9 @@ impl CPMM {
     ///
     /// Implementation: (1000 * x * Δy) / (997 * (y - Δy)) + 1  
     /// where / is integer division with truncation (floor)
-    pub fn get_output_price(&self, delta_y: u16, x_reserve: u16, y_reserve: u16) -> u16 {
+    pub fn get_output_price(&self, delta_y: u16, x_reserve: u16, y_reserve: u16) -> Result<u16, &'static str> {
         if delta_y >= y_reserve {
-            panic!("Output amount must be less than reserve");
+            return Err("Output amount must be less than reserve");
         }
 
         let delta_y_u32 = delta_y as u32;
@@ -178,14 +195,34 @@ impl CPMM {
 
         // Using ρ = 0.003 (0.3% fee), so γ = 0.997
         // Formula: (1000 * x * Δy) / (997 * (y - Δy)) + 1
-        let numerator = 1000u32 * x_u32 * delta_y_u32;
-        let denominator = 997u32 * (y_u32 - delta_y_u32);
+        
+        // Check for overflow in numerator calculation: 1000 * x * Δy
+        let first_mult = x_u32.checked_mul(1000u32)
+            .ok_or("x * 1000 overflows u32")?;
+        let numerator = first_mult.checked_mul(delta_y_u32)
+            .ok_or("numerator calculation overflows u32")?;
+        
+        // Check for underflow and overflow in denominator calculation: 997 * (y - Δy)
+        if y_u32 < delta_y_u32 {
+            return Err("y - delta_y underflows");
+        }
+        let y_minus_delta = y_u32 - delta_y_u32;
+        let denominator = y_minus_delta.checked_mul(997u32)
+            .ok_or("denominator calculation overflows u32")?;
 
         if denominator == 0 {
-            panic!("Division by zero in output price calculation");
+            return Err("Division by zero in output price calculation");
         }
 
-        ((numerator / denominator) as u16) + 1
+        let base_result = numerator / denominator;
+        let result = base_result.checked_add(1)
+            .ok_or("result + 1 overflows u32")?;
+        
+        if result > u16::MAX as u32 {
+            return Err("result overflows u16");
+        }
+
+        Ok(result as u16)
     }
 
     /// Section 4.1.2: ethToTokencode
@@ -193,7 +230,7 @@ impl CPMM {
     /// e'' = e + Δe
     /// t'' = t - getInputPricecode(Δe, e, t) = ⌊t'⌋
     pub fn eth_to_token(&mut self, delta_e: u16) -> Result<u16, &'static str> {
-        let delta_t = self.get_input_price(delta_e, self.e, self.t);
+        let delta_t = self.get_input_price(delta_e, self.e, self.t)?;
         
         // Check for overflow in e update
         if self.e.checked_add(delta_e).is_none() {
@@ -216,33 +253,72 @@ impl CPMM {
     /// Takes integer input Δt (0 < Δt < t) and updates state
     /// t'' = t - Δt
     /// e'' = e + getOutputPricecode(Δt, e, t)
-    pub fn eth_to_token_exact(&mut self, delta_t: u16) -> u16 {
-        let delta_e = self.get_output_price(delta_t, self.e, self.t);
+    pub fn eth_to_token_exact(&mut self, delta_t: u16) -> Result<u16, &'static str> {
+        let delta_e = self.get_output_price(delta_t, self.e, self.t)?;
+        
+        // Check for overflow in e update
+        if self.e.checked_add(delta_e).is_none() {
+            return Err("e update overflows u16");
+        }
+        
+        // Check for underflow in t update  
+        if self.t < delta_t {
+            return Err("t update would underflow");
+        }
+        
+        // Update state
         self.e += delta_e;
         self.t -= delta_t;
-        delta_e
+        
+        Ok(delta_e)
     }
 
     /// Section 4.3.2: tokenToEthcode
     /// Takes integer input Δt (Δt > 0) and updates state  
     /// t'' = t + Δt
     /// e'' = e - getInputPricecode(Δt, t, e) = ⌊e'⌋
-    pub fn token_to_eth(&mut self, delta_t: u16) -> u16 {
-        let delta_e = self.get_input_price(delta_t, self.t, self.e);
+    pub fn token_to_eth(&mut self, delta_t: u16) -> Result<u16, &'static str> {
+        let delta_e = self.get_input_price(delta_t, self.t, self.e)?;
+        
+        // Check for overflow in t update
+        if self.t.checked_add(delta_t).is_none() {
+            return Err("t update overflows u16");
+        }
+        
+        // Check for underflow in e update
+        if self.e < delta_e {
+            return Err("e update would underflow");
+        }
+        
+        // Update state
         self.t += delta_t;
         self.e -= delta_e;
-        delta_e
+        
+        Ok(delta_e)
     }
 
     /// Section 4.4.2: tokenToEthExactcode
     /// Takes integer input Δe (0 < Δe < e) and updates state
     /// e'' = e - Δe  
     /// t'' = t + getOutputPricecode(Δe, t, e)
-    pub fn token_to_eth_exact(&mut self, delta_e: u16) -> u16 {
-        let delta_t = self.get_output_price(delta_e, self.t, self.e);
+    pub fn token_to_eth_exact(&mut self, delta_e: u16) -> Result<u16, &'static str> {
+        let delta_t = self.get_output_price(delta_e, self.t, self.e)?;
+        
+        // Check for overflow in t update
+        if self.t.checked_add(delta_t).is_none() {
+            return Err("t update overflows u16");
+        }
+        
+        // Check for underflow in e update
+        if self.e < delta_e {
+            return Err("e update would underflow");
+        }
+        
+        // Update state
         self.t += delta_t;
         self.e -= delta_e;
-        delta_t
+        
+        Ok(delta_t)
     }
 }
 
@@ -294,12 +370,12 @@ mod tests {
         let cpmm = CPMM::new(1000, 2000, 1414);
         
         // Test input price with 0.3% fee
-        let delta_y = cpmm.get_input_price(100, 1000, 2000);
+        let delta_y = cpmm.get_input_price(100, 1000, 2000).expect("Should not overflow");
         // (997 * 100 * 2000) / (1000 * 1000 + 997 * 100) = 199400000 / 1099700 = 181
         assert_eq!(delta_y, 181);
         
         // Test output price with 0.3% fee  
-        let delta_x = cpmm.get_output_price(100, 1000, 2000);
+        let delta_x = cpmm.get_output_price(100, 1000, 2000).expect("Should not overflow");
         // (1000 * 1000 * 100) / (997 * (2000 - 100)) + 1 = 100000000 / 1894300 + 1 = 52 + 1 = 53
         assert_eq!(delta_x, 53);
     }
@@ -316,7 +392,7 @@ mod tests {
         
         // Reset and test token to eth
         let mut cpmm2 = CPMM::new(1000, 2000, 1414);
-        let eth_received = cpmm2.token_to_eth(100);
+        let eth_received = cpmm2.token_to_eth(100).expect("Should not overflow/underflow");
         assert_eq!(eth_received, 47); // (997 * 100 * 1000) / (1000 * 2000 + 997 * 100) = 47
         assert_eq!(cpmm2.e, 953);
         assert_eq!(cpmm2.t, 2100);
@@ -402,14 +478,15 @@ mod kani_verification {
     #[kani::proof]
     fn verify_eth_to_token_increases_k() {
         let initial_e: u16 = 10000;
-        let initial_t: u16 = 10000;
+        let initial_t: u16 = 20000;
+        let initial_l: u16 = 14141;
         let delta_e: u16 = kani::any();
 
         // Test with smaller bounds for faster verification
         kani::assume(delta_e >= 1 && delta_e <= initial_e);
 
         // Create CPMM and record initial k
-        let mut cpmm = CPMM::new(initial_e, initial_t, 1414);
+        let mut cpmm = CPMM::new(initial_e, initial_t, initial_l);
         let k_before = cpmm.k();
 
         // Execute trade - only test cases that don't overflow/underflow
