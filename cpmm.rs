@@ -225,28 +225,59 @@ impl CPMM {
         Ok(result as u16)
     }
 
+    /// Generic swap calculation that returns new state values
+    /// Parameters:
+    /// - input_amount: The amount being input to the swap
+    /// - output_amount: The calculated output amount  
+    /// - from_reserve: Current value of the reserve being modified by input
+    /// - to_reserve: Current value of the reserve being modified by output
+    /// - add_to_from: Whether to add input_amount to from_reserve (true) or subtract (false)
+    /// Returns: (new_from_reserve, new_to_reserve, output_amount)
+    fn calculate_swap(&self,
+                     input_amount: u16,
+                     output_amount: u16,
+                     from_reserve: u16,
+                     to_reserve: u16,
+                     add_to_from: bool,
+                     from_name: &'static str,
+                     to_name: &'static str) -> Result<(u16, u16, u16), &'static str>
+    {
+        let (new_from, new_to) = if add_to_from {
+            // Check for overflow when adding to from_reserve
+            let new_from = from_reserve.checked_add(input_amount)
+                .ok_or(if from_name == "e" { "e update overflows u16" } else { "t update overflows u16" })?;
+            // Check for underflow when subtracting from to_reserve  
+            if to_reserve < output_amount {
+                return Err(if to_name == "e" { "e update would underflow" } else { "t update would underflow" });
+            }
+            let new_to = to_reserve - output_amount;
+            (new_from, new_to)
+        } else {
+            // Check for underflow when subtracting from from_reserve
+            if from_reserve < input_amount {
+                return Err(if from_name == "e" { "e update would underflow" } else { "t update would underflow" });
+            }
+            let new_from = from_reserve - input_amount;
+            // Check for overflow when adding to to_reserve
+            let new_to = to_reserve.checked_add(output_amount)
+                .ok_or(if to_name == "e" { "e update overflows u16" } else { "t update overflows u16" })?;
+            (new_from, new_to)
+        };
+        
+        Ok((new_from, new_to, output_amount))
+    }
+
     /// Section 4.1.2: ethToTokencode
     /// Takes integer input Δe (Δe > 0) and updates state
     /// e'' = e + Δe
     /// t'' = t - getInputPricecode(Δe, e, t) = ⌊t'⌋
     pub fn eth_to_token(&mut self, delta_e: u16) -> Result<u16, &'static str> {
         let delta_t = self.get_input_price(delta_e, self.e, self.t)?;
-        
-        // Check for overflow in e update
-        if self.e.checked_add(delta_e).is_none() {
-            return Err("e update overflows u16");
-        }
-        
-        // Check for underflow in t update
-        if self.t < delta_t {
-            return Err("t update would underflow");
-        }
-        
-        // Update state
-        self.e += delta_e;
-        self.t -= delta_t;
-        
-        Ok(delta_t)
+        let (new_e, new_t, output) = self.calculate_swap(
+            delta_e, delta_t, self.e, self.t, true, "e", "t")?;
+        self.e = new_e;
+        self.t = new_t;
+        Ok(output)
     }
 
     /// Section 4.2.2: ethToTokenExactcode  
@@ -255,22 +286,11 @@ impl CPMM {
     /// e'' = e + getOutputPricecode(Δt, e, t)
     pub fn eth_to_token_exact(&mut self, delta_t: u16) -> Result<u16, &'static str> {
         let delta_e = self.get_output_price(delta_t, self.e, self.t)?;
-        
-        // Check for overflow in e update
-        if self.e.checked_add(delta_e).is_none() {
-            return Err("e update overflows u16");
-        }
-        
-        // Check for underflow in t update  
-        if self.t < delta_t {
-            return Err("t update would underflow");
-        }
-        
-        // Update state
-        self.e += delta_e;
-        self.t -= delta_t;
-        
-        Ok(delta_e)
+        let (new_t, new_e, output) = self.calculate_swap(
+            delta_t, delta_e, self.t, self.e, false, "t", "e")?;
+        self.t = new_t;
+        self.e = new_e;
+        Ok(output)
     }
 
     /// Section 4.3.2: tokenToEthcode
@@ -279,22 +299,11 @@ impl CPMM {
     /// e'' = e - getInputPricecode(Δt, t, e) = ⌊e'⌋
     pub fn token_to_eth(&mut self, delta_t: u16) -> Result<u16, &'static str> {
         let delta_e = self.get_input_price(delta_t, self.t, self.e)?;
-        
-        // Check for overflow in t update
-        if self.t.checked_add(delta_t).is_none() {
-            return Err("t update overflows u16");
-        }
-        
-        // Check for underflow in e update
-        if self.e < delta_e {
-            return Err("e update would underflow");
-        }
-        
-        // Update state
-        self.t += delta_t;
-        self.e -= delta_e;
-        
-        Ok(delta_e)
+        let (new_t, new_e, output) = self.calculate_swap(
+            delta_t, delta_e, self.t, self.e, true, "t", "e")?;
+        self.t = new_t;
+        self.e = new_e;
+        Ok(output)
     }
 
     /// Section 4.4.2: tokenToEthExactcode
@@ -303,22 +312,11 @@ impl CPMM {
     /// t'' = t + getOutputPricecode(Δe, t, e)
     pub fn token_to_eth_exact(&mut self, delta_e: u16) -> Result<u16, &'static str> {
         let delta_t = self.get_output_price(delta_e, self.t, self.e)?;
-        
-        // Check for overflow in t update
-        if self.t.checked_add(delta_t).is_none() {
-            return Err("t update overflows u16");
-        }
-        
-        // Check for underflow in e update
-        if self.e < delta_e {
-            return Err("e update would underflow");
-        }
-        
-        // Update state
-        self.t += delta_t;
-        self.e -= delta_e;
-        
-        Ok(delta_t)
+        let (new_e, new_t, output) = self.calculate_swap(
+            delta_e, delta_t, self.e, self.t, false, "e", "t")?;
+        self.e = new_e;
+        self.t = new_t;
+        Ok(output)
     }
 }
 
@@ -498,5 +496,129 @@ mod kani_verification {
             assert!(k_after >= k_before, "Trading should not decrease k due to fees");
         }
         // If overflow/underflow occurs, that's acceptable - we just skip verification for that case
+    }
+
+    /// Property 3: Token to ETH swap increases k due to fees
+    /// When swapping tokens for ETH, the constant product k should increase or stay the same
+    /// due to the 0.3% trading fee embedded in the swap formulas.
+    #[kani::proof]
+    fn verify_token_to_eth_increases_k() {
+        let initial_e: u16 = 10000;
+        let initial_t: u16 = 20000;
+        let initial_l: u16 = 14141;
+        let delta_t: u16 = kani::any();
+
+        // Test with smaller bounds for faster verification
+        kani::assume(delta_t >= 1 && delta_t <= initial_t / 2);
+
+        // Create CPMM instance and record initial k
+        let mut cpmm = CPMM::new(initial_e, initial_t, initial_l);
+        let k_before = cpmm.k();
+
+        // Execute token to ETH swap
+        if let Ok(_eth_out) = cpmm.token_to_eth(delta_t) {
+            let k_after = cpmm.k();
+
+            // Verify that k increases or stays the same due to fees
+            assert!(k_after >= k_before, "Property 3 violated: k must not decrease after token to ETH swap");
+        }
+    }
+
+    /// Property 4: ETH to token exact swap increases k due to fees
+    /// When swapping ETH for an exact amount of tokens, k should increase or stay the same
+    /// due to the 0.3% trading fee embedded in the getOutputPrice formula.
+    #[kani::proof]
+    fn verify_eth_to_token_exact_increases_k() {
+        let initial_e: u16 = 10000;
+        let initial_t: u16 = 20000;
+        let initial_l: u16 = 14141;
+        let delta_t: u16 = kani::any();
+
+        // Test with smaller bounds for faster verification
+        kani::assume(delta_t >= 1 && delta_t <= initial_t / 2);
+
+        // Create CPMM instance and record initial k
+        let mut cpmm = CPMM::new(initial_e, initial_t, initial_l);
+        let k_before = cpmm.k();
+
+        // Execute ETH to token exact swap
+        if let Ok(_eth_in) = cpmm.eth_to_token_exact(delta_t) {
+            let k_after = cpmm.k();
+
+            // Verify that k increases or stays the same due to fees
+            assert!(k_after >= k_before, "Property 4 violated: k must not decrease after ETH to token exact swap");
+        }
+    }
+
+    /// Property 5: Token to ETH exact swap increases k due to fees
+    /// When swapping tokens for an exact amount of ETH, k should increase or stay the same
+    /// due to the 0.3% trading fee embedded in the getOutputPrice formula.
+    #[kani::proof]
+    fn verify_token_to_eth_exact_increases_k() {
+        let initial_e: u16 = 10000;
+        let initial_t: u16 = 20000;
+        let initial_l: u16 = 14141;
+        let delta_e: u16 = kani::any();
+
+        // Test with smaller bounds for faster verification
+        kani::assume(delta_e >= 1 && delta_e <= initial_e / 2);
+
+        // Create CPMM instance and record initial k
+        let mut cpmm = CPMM::new(initial_e, initial_t, initial_l);
+        let k_before = cpmm.k();
+
+        // Execute token to ETH exact swap
+        if let Ok(_tokens_in) = cpmm.token_to_eth_exact(delta_e) {
+            let k_after = cpmm.k();
+
+            // Verify that k increases or stays the same due to fees
+            assert!(k_after >= k_before, "Property 5 violated: k must not decrease after token to ETH exact swap");
+        }
+    }
+
+    /// Property 6: Swap operations preserve liquidity tokens
+    /// When performing any swap operation (ETH to token or token to ETH),
+    /// the total supply of liquidity tokens (l) should remain unchanged.
+    #[kani::proof]
+    fn verify_swaps_preserve_liquidity() {
+        let initial_e: u16 = 10000;
+        let initial_t: u16 = 20000;
+        let initial_l: u16 = 14141;
+        let swap_amount: u16 = kani::any();
+
+        // Test with smaller bounds for faster verification
+        kani::assume(swap_amount >= 1 && swap_amount <= 5000);
+
+        // Test ETH to token swap
+        let mut cpmm1 = CPMM::new(initial_e, initial_t, initial_l);
+        let l_before = cpmm1.l;
+        if let Ok(_) = cpmm1.eth_to_token(swap_amount) {
+            assert_eq!(cpmm1.l, l_before, "Property 6 violated: liquidity changed during ETH to token swap");
+        }
+
+        // Test token to ETH swap
+        let mut cpmm2 = CPMM::new(initial_e, initial_t, initial_l);
+        let l_before2 = cpmm2.l;
+        if let Ok(_) = cpmm2.token_to_eth(swap_amount) {
+            assert_eq!(cpmm2.l, l_before2, "Property 6 violated: liquidity changed during token to ETH swap");
+        }
+
+        // Test ETH to token exact swap
+        let mut cpmm3 = CPMM::new(initial_e, initial_t, initial_l);
+        let l_before3 = cpmm3.l;
+        if swap_amount < initial_t {
+            if let Ok(_) = cpmm3.eth_to_token_exact(swap_amount) {
+                assert_eq!(cpmm3.l, l_before3, "Property 6 violated: liquidity changed during ETH to token exact swap");
+            }
+        }
+
+        // Test token to ETH exact swap
+        let mut cpmm4 = CPMM::new(initial_e, initial_t, initial_l);
+        let l_before4 = cpmm4.l;
+        if swap_amount < initial_e {
+            if let Ok(_) = cpmm4.token_to_eth_exact(swap_amount) {
+                assert_eq!(cpmm4.l, l_before4, "Property 6 violated: liquidity changed during token to ETH exact swap");
+            }
+        }
     }
 }
