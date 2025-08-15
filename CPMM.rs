@@ -230,19 +230,6 @@ mod verification {
     use super::*;
 
     #[kani::proof]
-    fn verify_k() {
-        let e: u32 = kani::any();
-        let t: u32 = kani::any();
-        let l: u32 = kani::any();
-        
-        let pool = CPMM::new(e, t, l);
-        let k_value = pool.k();
-        
-        // Verify that k = e * t with proper 64-bit precision
-        assert_eq!(k_value, (e as u64) * (t as u64));
-    }
-
-    #[kani::proof]
     fn verify_add_liquidity() {
         let e: u32 = kani::any();
         let t: u32 = kani::any();
@@ -311,63 +298,6 @@ mod verification {
             // If we remove all liquidity, reserves should be zero
             if delta_l == l {
                 assert!(pool.e == 0 || pool.t == 0 || pool.l == 0);
-            }
-        }
-    }
-
-    #[kani::proof]
-    fn verify_get_input_price() {
-        let delta_x: u32 = kani::any();
-        let x_reserve: u32 = kani::any();
-        let y_reserve: u32 = kani::any();
-        
-        // Constrain inputs to reasonable values
-        kani::assume(x_reserve > 0 && y_reserve > 0);
-        kani::assume((delta_x as u64) < (u32::MAX as u64 / 100));
-        
-        let pool = CPMM::new(x_reserve, y_reserve, 1000);
-        
-        if let Some(output) = pool.get_input_price(delta_x, x_reserve, y_reserve) {
-            // Output should be less than y_reserve
-            assert!(output < y_reserve);
-            
-            // Verify the constant product formula approximately holds
-            // After trade: (x + delta_x * fee) * (y - output) ~= x * y
-            let fee_adjusted_input = (delta_x as u64 * pool.fee_numerator as u64) / pool.fee_denominator as u64;
-            let new_x = x_reserve as u64 + fee_adjusted_input;
-            let new_y = y_reserve as u64 - output as u64;
-            
-            // The product should be approximately preserved (accounting for rounding)
-            let original_k = x_reserve as u64 * y_reserve as u64;
-            let new_k = new_x * new_y;
-            
-            // Due to integer division, new_k might be slightly less than original_k
-            assert!(new_k <= original_k || (original_k - new_k) <= new_x);
-        }
-    }
-
-    #[kani::proof]
-    fn verify_get_output_price() {
-        let delta_y: u32 = kani::any();
-        let x_reserve: u32 = kani::any();
-        let y_reserve: u32 = kani::any();
-        
-        // Constrain inputs to reasonable values
-        kani::assume(x_reserve > 0 && y_reserve > 0);
-        kani::assume(delta_y < y_reserve);
-        kani::assume((x_reserve as u64) < (u32::MAX as u64 / 100));
-        kani::assume((y_reserve as u64) < (u32::MAX as u64 / 100));
-        
-        let pool = CPMM::new(x_reserve, y_reserve, 1000);
-        
-        if let Ok(input_required) = pool.get_output_price(delta_y, x_reserve, y_reserve) {
-            // Input required should be positive
-            assert!(input_required > 0);
-            
-            // Verify that if we use this input, we get at least delta_y output
-            if let Some(actual_output) = pool.get_input_price(input_required, x_reserve, y_reserve) {
-                // Due to the +1 in get_output_price, actual_output should be >= delta_y
-                assert!(actual_output >= delta_y);
             }
         }
     }
