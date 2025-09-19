@@ -4,4 +4,5 @@
 
 Rust implementation is checked by [Kani](https://model-checking.github.io/kani/)
 
-Most of the implementation was written by AI agents.
+Most of the implementation was written by agentic coding tool such as Claude
+Code and Codex.
